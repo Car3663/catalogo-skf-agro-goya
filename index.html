@@ -14,6 +14,7 @@
   --radius:10px;
 }
 *{box-sizing:border-box}
+img{-webkit-user-drag:none;user-drag:none;-webkit-touch-callout:none}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
 a{color:var(--blue-700)}
 .header{background:linear-gradient(120deg,var(--blue-900),var(--blue-700));color:#fff;padding:0}
@@ -1217,6 +1218,11 @@ document.getElementById('backToSearch').addEventListener('click', (e)=>{
   document.getElementById('topSearch').scrollIntoView({behavior:'smooth', block:'start'});
   setTimeout(()=> document.getElementById('q').focus(), 350);
 });
+
+// Protección básica de imágenes (diseños técnicos): sin clic derecho ni arrastrar/guardar.
+// El texto (designaciones, medidas, etc.) queda seleccionable para que se pueda copiar y pegar.
+document.addEventListener('contextmenu', e => { if(e.target.tagName === 'IMG') e.preventDefault(); });
+document.addEventListener('dragstart', e => { if(e.target.tagName === 'IMG') e.preventDefault(); });
 
 const q = document.getElementById('q');
 const famSel = document.getElementById('famSel');
