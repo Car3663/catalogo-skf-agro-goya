@@ -115,6 +115,11 @@ tr.hide{display:none}
 .empty-state{display:none;padding:60px 20px;text-align:center;color:var(--ink-soft)}
 .empty-state.show{display:block}
 .empty-state h3{color:var(--ink);margin:0 0 6px}
+.search-prompt{display:none;padding:56px 20px;text-align:center;color:var(--ink-soft)}
+.search-prompt.show{display:block}
+.search-prompt svg{opacity:.35;margin-bottom:10px}
+.search-prompt h3{color:var(--ink);margin:0 0 6px;font-size:17px}
+.search-prompt p{max-width:420px;margin:0 auto}
 
 .cta{max-width:1180px;margin:0 auto 60px;padding:0 24px}
 .cta-card{background:linear-gradient(120deg,var(--blue-800),var(--blue-600));border-radius:14px;padding:32px;color:#fff;display:flex;justify-content:space-between;align-items:center;gap:24px;flex-wrap:wrap}
@@ -1152,6 +1157,11 @@ DEERE - AN100425N -J DEERE AN10097 J DEERE.. - AN14075 J.Deere - AN210540, A4246
       <h3>No encontramos resultados</h3>
       <p>Probá con otra designación, medida o código equivalente — o escribinos, lo verificamos por vos.</p>
     </div>
+    <div class="search-prompt" id="searchPrompt">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <h3>Buscá tu producto</h3>
+      <p>Escribí una designación (ej: 6205), una medida o un código equivalente en el buscador de arriba, o elegí una familia, para ver los productos.</p>
+    </div>
   </div>
 </div>
 
@@ -1213,6 +1223,7 @@ const famSel = document.getElementById('famSel');
 const rows = Array.from(document.querySelectorAll('#tbody tr.prow'));
 const countEl = document.getElementById('count');
 const emptyState = document.getElementById('emptyState');
+const searchPrompt = document.getElementById('searchPrompt');
 const chips = Array.from(document.querySelectorAll('.chip'));
 const TOTAL = rows.length;
 
@@ -1279,36 +1290,48 @@ function applyFilter(){
   const rawTerm = q.value.trim();
   const term = normalize(rawTerm);
   const fam = famSel.value;
+  const noQuery = !rawTerm && !fam;
   let shown = 0;
   let usedFuzzy = false;
 
-  rows.forEach(r=>{
-    const matchesTerm = !term || normalize(r.dataset.search).includes(term);
-    const matchesFam = !fam || r.dataset.fam === fam;
-    const visible = matchesTerm && matchesFam;
-    r.classList.toggle('hide', !visible);
-    if(visible) shown++;
-  });
+  if(noQuery){
+    // Sin búsqueda ni filtro: no mostramos el listado completo (807 productos)
+    // de una, para no dejar toda la base a la vista de cualquiera.
+    rows.forEach(r => r.classList.add('hide'));
+  } else {
+    rows.forEach(r=>{
+      const matchesTerm = !term || normalize(r.dataset.search).includes(term);
+      const matchesFam = !fam || r.dataset.fam === fam;
+      const visible = matchesTerm && matchesFam;
+      r.classList.toggle('hide', !visible);
+      if(visible) shown++;
+    });
 
-  // Sin resultados exactos: probamos búsqueda difusa tipo IA (typos, palabras parecidas)
-  if(shown === 0 && term.length >= 2 && fuse){
-    const matches = fuse.search(rawTerm)
-      .filter(m => m.score <= 0.45)
-      .slice(0, 40)
-      .map(m => m.item.row);
-    if(matches.length){
-      usedFuzzy = true;
-      rows.forEach(r=>{
-        const matchesFam = !fam || r.dataset.fam === fam;
-        const visible = matches.includes(r) && matchesFam;
-        r.classList.toggle('hide', !visible);
-        if(visible) shown++;
-      });
+    // Sin resultados exactos: probamos búsqueda difusa tipo IA (typos, palabras parecidas)
+    if(shown === 0 && term.length >= 2 && fuse){
+      const matches = fuse.search(rawTerm)
+        .filter(m => m.score <= 0.45)
+        .slice(0, 40)
+        .map(m => m.item.row);
+      if(matches.length){
+        usedFuzzy = true;
+        rows.forEach(r=>{
+          const matchesFam = !fam || r.dataset.fam === fam;
+          const visible = matches.includes(r) && matchesFam;
+          r.classList.toggle('hide', !visible);
+          if(visible) shown++;
+        });
+      }
     }
   }
 
-  countEl.innerHTML = 'Mostrando <strong>'+shown+'</strong> de <strong>'+TOTAL+'</strong> productos';
-  emptyState.classList.toggle('show', shown === 0);
+  if(noQuery){
+    countEl.innerHTML = '<strong>'+TOTAL+'</strong> productos disponibles — buscá una designación, medida o familia para verlos';
+  } else {
+    countEl.innerHTML = 'Mostrando <strong>'+shown+'</strong> de <strong>'+TOTAL+'</strong> productos';
+  }
+  searchPrompt.classList.toggle('show', noQuery);
+  emptyState.classList.toggle('show', !noQuery && shown === 0);
   approxNote.classList.toggle('show', usedFuzzy && shown > 0);
   if(usedFuzzy) approxNoteText.textContent = 'No hay resultados exactos para "'+rawTerm+'" — mostrando resultados aproximados.';
 
@@ -1316,9 +1339,10 @@ function applyFilter(){
   // para no taparle espacio a los resultados.
   const novedadWrap = document.getElementById('novedadWrap');
   if(novedadWrap && !novedadWrap.hidden){
-    novedadWrap.classList.toggle('novedad-collapsed', !!rawTerm || !!fam);
+    novedadWrap.classList.toggle('novedad-collapsed', !noQuery);
   }
 }
+applyFilter();
 
 q.addEventListener('input', ()=>{
   // Si el usuario escribe una búsqueda con un filtro de familia puesto,
