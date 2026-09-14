@@ -301,7 +301,7 @@ body.has-consult-bar{padding-bottom:60px}
       </select>
     </div>
     <div class="search-hint">
-      Tip: escribí el valor <strong>entre comillas</strong> para una <strong>b&uacute;squeda exacta</strong> &mdash; <code>"6205"</code> muestra solo el c&oacute;digo exacto, sin variantes (6205-2RS, 6205 ETN9, etc.). Sin comillas, la b&uacute;squeda es amplia y tolera errores de tipeo.
+      Tip: escrib&iacute; el valor <strong>entre comillas</strong> para una <strong>b&uacute;squeda exacta</strong> en <strong>designaci&oacute;n</strong> y <strong>observaciones</strong> &mdash; <code>"6205"</code> muestra el c&oacute;digo exacto, sin variantes (6205-2RS, 6205 ETN9, etc.). Sin comillas, la b&uacute;squeda es amplia (todos los campos) y tolera errores de tipeo.
     </div>
     <div class="results-meta">
       <div id="count">Mostrando <strong>8871</strong> de <strong>8871</strong> productos</div>
@@ -585,8 +585,13 @@ function getFuse(){
 // Si el usuario escribe el término entre comillas ("6205", "48x72x10",
 // "SAV 5511"), no queremos coincidencias parciales: con códigos cortos la
 // búsqueda amplia devuelve decenas de variantes (6205-2RS, 6205 ETN9, ...)
-// y tapa el artículo puntual que se está buscando. En modo exacto solo
-// matchea la fila cuyo código, designación equivalente o medida ES ese valor.
+// y tapa el artículo puntual que se está buscando. El modo exacto mira solo
+// dos campos -- DESIGNACIÓN y OBSERVACIONES -- y deja afuera familia,
+// diseño/sello y material, que son los que inflan los resultados.
+//   - Designación: tiene que SER el código (o una designación equivalente,
+//     o la medida) -- no alcanza con contenerlo.
+//   - Observaciones: el texto entre comillas tiene que aparecer tal cual,
+//     como término completo (no como parte de otra palabra o código).
 const EXACT_RE = /^\s*["\u201c\u201d\u00ab](.+)["\u201c\u201d\u00bb]\s*$/;
 function parseExactTerm(raw){
   const m = raw.match(EXACT_RE);
@@ -602,16 +607,49 @@ const BRAND_RE = /^(sav|dbh|skf|peer|per|phc|phs|rsf|nachi|ntn|fag|ina|timken)\.
 const MEASURE_RE = /\d+(?:\.\d+)?\s*x\s*\d+(?:\.\d+)?(?:\s*x\s*\d+(?:\.\d+)?)?/g;
 const EQUIV_RE = /(?:equivalencia|equivalente|equiv)\s*:?\s*([^.]{1,60})/g;
 let _exactKeys;
+let _exactObs;
+
+// El texto de Observaciones no viene como array aparte (se arma en el build
+// dentro del HTML de cada fila), así que lo sacamos de ROWS_HTML: celda
+// .c-obs, sin el botón "Ver más" ni etiquetas.
+const OBS_CELL_RE = /<td class="c-obs"[^>]*>([\s\S]*?)<\/td>/;
+const ENTITIES = {'&quot;':'"','&amp;':'&','&lt;':'<','&gt;':'>','&nbsp;':' ','&#39;':"'",'&#x27;':"'"};
+function extractObs(rowHtml){
+  const m = rowHtml.match(OBS_CELL_RE);
+  if(!m) return '';
+  return m[1]
+    .replace(/<button[\s\S]*?<\/button>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&(?:quot|amp|lt|gt|nbsp|#39|#x27);/g, e => ENTITIES[e] || ' ');
+}
+
+// Coincidencia de término completo: "6205" matchea "aplicación 6205 agrícola"
+// pero no "62052" ni "x6205y". Así Observaciones sigue siendo una búsqueda
+// exacta y no una búsqueda parcial disfrazada.
+function containsWhole(hay, needle){
+  if(!hay || !needle) return false;
+  let i = hay.indexOf(needle);
+  while(i !== -1){
+    const before = i === 0 ? '' : hay.charAt(i - 1);
+    const after = hay.charAt(i + needle.length);
+    if(!/[a-z0-9]/.test(before) && !/[a-z0-9]/.test(after)) return true;
+    i = hay.indexOf(needle, i + 1);
+  }
+  return false;
+}
+
 function addKey(set, s){
   const t = (s || '').trim();
   if(t.length < 2 || t.length > 40) return;
   set.add(t);
   set.add(t.replace(/\s+/g, ''));
 }
-function getExactKeys(){
-  if(_exactKeys) return _exactKeys;
+function buildExactIndex(){
+  if(_exactKeys) return;
   _exactKeys = new Array(TOTAL);
+  _exactObs = new Array(TOTAL);
   for(let i = 0; i < TOTAL; i++){
+    _exactObs[i] = normalize(extractObs(ROWS_HTML[i]));
     const set = new Set();
     const d = searchIndex[i].desig;   // ya normalizada
     addKey(set, d);
@@ -640,7 +678,6 @@ function getExactKeys(){
 
     _exactKeys[i] = set;
   }
-  return _exactKeys;
 }
 
 const approxNote = document.getElementById('approxNote');
@@ -667,9 +704,13 @@ function applyFilter(){
     // productos) de una, para no dejar toda la base a la vista de cualquiera.
   } else if(isExact){
     // Modo exacto: sin coincidencias parciales y sin búsqueda difusa.
-    const keys = getExactKeys();
+    // Solo dos campos: DESIGNACIÓN (igualdad de código) y OBSERVACIONES
+    // (el término tiene que aparecer completo en el texto).
+    buildExactIndex();
     for(let i = 0; i < TOTAL; i++){
-      const matchesTerm = keys[i].has(term) || keys[i].has(termCompact);
+      const matchesTerm = _exactKeys[i].has(term)
+        || _exactKeys[i].has(termCompact)
+        || containsWhole(_exactObs[i], term);
       const matchesFam = !fam || FAM_DATA[i] === fam;
       if(matchesTerm && matchesFam) matchedIndices.push(i);
     }
@@ -718,8 +759,8 @@ function applyFilter(){
   exactNote.classList.toggle('show', isExact);
   if(isExact){
     exactNoteText.innerHTML = shown > 0
-      ? 'Búsqueda exacta: solo coincidencias exactas de <code>' + escapeHtml(exactTerm) + '</code>. Sacá las comillas para ver también las variantes.'
-      : 'No hay ninguna coincidencia exacta con <code>' + escapeHtml(exactTerm) + '</code>. Probá sin comillas para una búsqueda amplia.';
+      ? 'Búsqueda exacta de <code>' + escapeHtml(exactTerm) + '</code> en <strong>designación</strong> y <strong>observaciones</strong>. Sacá las comillas para buscar en todos los campos y ver también las variantes.'
+      : 'No hay ninguna coincidencia exacta con <code>' + escapeHtml(exactTerm) + '</code> en designación ni en observaciones. Probá sin comillas para una búsqueda amplia.';
   }
 
   // Colapsar la novedad destacada mientras hay una búsqueda o filtro activo,
