@@ -700,7 +700,9 @@ function applyFilter(){
   const rawTerm = q.value.trim();
   const exactTerm = parseExactTerm(rawTerm);          // valor entre comillas, o null
   const isExact = exactTerm !== null;
-  const term = normalize(isExact ? exactTerm : rawTerm);
+  let term = normalize(isExact ? exactTerm : rawTerm);
+  // "25 x 52 x 10" y "25x52x10" son la misma medida
+  term = term.replace(/(\d)\s*x\s*(?=\d)/g, '$1x');
   const termCompact = term.replace(/\s+/g, '');
   const fam = famSel.value;
   const noQuery = !rawTerm && !fam;
@@ -723,8 +725,17 @@ function applyFilter(){
       if(matchesTerm && matchesFam) matchedIndices.push(i);
     }
   } else {
+    // Búsqueda amplia: cada palabra del término se busca por separado y tienen
+    // que estar TODAS en la fila, no uno al lado del otro. Así "25x52x10 doble
+    // labio" encuentra el retén aunque la medida esté al final del texto y el
+    // tipo de sello al principio.
+    const palabras = term ? term.split(/\s+/).filter(Boolean) : [];
     for(let i = 0; i < TOTAL; i++){
-      const matchesTerm = !term || searchIndex[i].blob.includes(term);
+      const blob = searchIndex[i].blob;
+      let matchesTerm = true;
+      for(let k = 0; k < palabras.length; k++){
+        if(!blob.includes(palabras[k])){ matchesTerm = false; break; }
+      }
       const matchesFam = !fam || FAM_DATA[i] === fam;
       if(matchesTerm && matchesFam) matchedIndices.push(i);
     }
